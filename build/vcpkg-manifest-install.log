@@ -1,0 +1,18 @@
+Detecting compiler hash for triplet x64-windows...
+All requested packages are currently installed.
+Total install time: 400 ns
+cxxopts provides CMake targets:
+
+    # this is heuristically generated, and may not be correct
+    find_package(cxxopts CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE cxxopts::cxxopts)
+
+The package fmt provides CMake targets:
+
+    find_package(fmt CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE fmt::fmt)
+
+    # Or use the header-only version
+    find_package(fmt CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE fmt::fmt-header-only)
+

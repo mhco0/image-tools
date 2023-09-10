@@ -1,0 +1,11 @@
+x86-windows/
+x86-windows/include/
+x86-windows/include/cxxopts.hpp
+x86-windows/share/
+x86-windows/share/cxxopts/
+x86-windows/share/cxxopts/copyright
+x86-windows/share/cxxopts/cxxopts-config-version.cmake
+x86-windows/share/cxxopts/cxxopts-config.cmake
+x86-windows/share/cxxopts/cxxopts-targets.cmake
+x86-windows/share/cxxopts/vcpkg.spdx.json
+x86-windows/share/cxxopts/vcpkg_abi_info.txt

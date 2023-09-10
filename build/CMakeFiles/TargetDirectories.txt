@@ -1,0 +1,3 @@
+C:/Users/Marcos/Desktop/Meus projetos/PDI/L1/build/CMakeFiles/main.dir
+C:/Users/Marcos/Desktop/Meus projetos/PDI/L1/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Marcos/Desktop/Meus projetos/PDI/L1/build/CMakeFiles/ZERO_CHECK.dir
