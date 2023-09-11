@@ -1,8 +1,12 @@
+/// Copyright: Made by Marcos Oliveira (mhco@cin.ufpe.br 2023)
+/// Github: mhco0
+
 #include <algorithm>
 #include <ctype.h>
 #include <functional>
 #include <iterator>
 #include <numeric>
+#include <stdint.h>
 #include <string>
 #include <vcruntime_string.h>
 #include <vector>
@@ -12,7 +16,15 @@
 
 #include "libbmp.h"
 
-enum class Command { kUnkown = 0, kHistogram, kEqualization, kMedianGreyLevel };
+using byte = unsigned char;
+
+enum class Command {
+  kUnkown = 0,
+  kHistogram,
+  kEqualization,
+  kCutout,
+  kTwoPeaks
+};
 
 struct RGBHistogram {
   int red[256];
@@ -26,7 +38,6 @@ struct Rectangle {
 };
 
 struct RGBColor {
-  using byte = unsigned char;
   byte r, g, b;
 };
 
@@ -75,6 +86,10 @@ void DrawLine(BmpImg &img, int x, int y, int xf, int yf,
 
 } // namespace
 
+/// @brief Parses the @p command string of the user in some @see Command
+/// enumaration
+/// @param command The command provide by the user
+/// @return Some @see Command enumeration
 Command CommandByMethod(const std::string &command) {
   if (command == "histogram") {
     return Command::kHistogram;
@@ -84,13 +99,21 @@ Command CommandByMethod(const std::string &command) {
     return Command::kEqualization;
   }
 
-  if (command == "median_grey_level") {
-    return Command::kMedianGreyLevel;
+  if (command == "cutout") {
+    return Command::kCutout;
+  }
+
+  if (command == "two_peaks") {
+    return Command::kTwoPeaks;
   }
 
   return Command::kUnkown;
 }
 
+/// @brief Retrieves the histogram of some bitmap @p img
+/// @param img The image to retrieve the histogram
+/// @return A @see RGBHistogram struct with the histogram of the red, green and
+/// blue channel of the image.
 RGBHistogram GetHistogram(BmpImg &img) {
   RGBHistogram histogram{};
   memset(&histogram, 0, sizeof(RGBHistogram));
@@ -109,6 +132,10 @@ RGBHistogram GetHistogram(BmpImg &img) {
   return histogram;
 }
 
+/// @brief Creates a interpolated image with the visual information about the
+/// histogram of some image
+/// @param histogram The histogram information about each channel of the image
+/// @return A bitmap image with the histogram drawed upside down.
 BmpImg CreateHistogramImage(RGBHistogram &histogram) {
   const int lr_borders = 30;
   const int tb_borders = 10;
@@ -174,8 +201,36 @@ BmpImg CreateHistogramImage(RGBHistogram &histogram) {
   return graph;
 }
 
-BmpImg Equalize(BmpImg &img) {
-  using byte = unsigned char;
+/// @brief Converts some bitmap @p img in only true black and white value on
+/// each matrix.
+/// @param img [in | out] The image to be binarized.
+/// @param red_cut_point The point of cut for the red channel.
+/// @param green_cut_point The point of cut for the green channel.
+/// @param blue_cut_point The point of cut for the blue channel.
+void Binarize(BmpImg &img, byte red_cut_point, byte green_cut_point,
+              byte blue_cut_point) {
+  int width = img.get_width();
+  int height = img.get_height();
+
+  for (int x = 0; x < width; ++x) {
+    for (int y = 0; y < height; ++y) {
+      RGBColor value{.r = img.red_at(x, y),
+                     .g = img.green_at(x, y),
+                     .b = img.blue_at(x, y)};
+      RGBColor grey_value{};
+
+      grey_value.r = static_cast<byte>((value.r < red_cut_point) ? 0 : 255);
+      grey_value.g = static_cast<byte>((value.g < green_cut_point) ? 0 : 255);
+      grey_value.b = static_cast<byte>((value.b < blue_cut_point) ? 0 : 255);
+
+      img.set_pixel(x, y, grey_value.r, grey_value.g, grey_value.b);
+    }
+  }
+}
+
+/// @brief Applys the equalization algorithm on the @p img .
+/// @param img The image to have the histogram equalizated.
+void Equalize(BmpImg &img) {
   RGBHistogram histogram = GetHistogram(img);
 
   int height = img.get_height();
@@ -220,10 +275,8 @@ BmpImg Equalize(BmpImg &img) {
   int min_green_cdf = get_min_on_cdf(green_cdf, 256);
   int min_blue_cdf = get_min_on_cdf(blue_cdf, 256);
 
-  BmpImg output_img(width, height);
-
-  for (int x = 0; x < width; x++) {
-    for (int y = 0; y < height; y++) {
+  for (int x = 0; x < width; ++x) {
+    for (int y = 0; y < height; ++y) {
       byte red_value = img.red_at(x, y);
       byte green_value = img.green_at(x, y);
       byte blue_value = img.blue_at(x, y);
@@ -235,67 +288,55 @@ BmpImg Equalize(BmpImg &img) {
       byte equalized_blue =
           equalized_value(blue_cdf, blue_value, min_blue_cdf, total_pixels);
 
-      output_img.set_pixel(x, y, equalized_red, equalized_green,
-                           equalized_blue);
+      img.set_pixel(x, y, equalized_red, equalized_green, equalized_blue);
     }
   }
-
-  return output_img;
 }
 
-BmpImg MedianGreyLevel(BmpImg &img) {
-  using byte = unsigned char;
-  int width = img.get_width();
-  int height = img.get_height();
+/// @brief Applies the cutout algorithm on the @p img .
+/// @param img [in | out] The image to be binarized.
+void Cutout(BmpImg &img) { Binarize(img, 128, 128, 128); }
 
+/// @brief Applies the Two Peaks algorithm on the @p img .
+/// @param img [in | out]The image to be binarized.
+void TwoPeaks(BmpImg &img) {
   RGBHistogram histogram = GetHistogram(img);
 
-  auto non_zero = [](int value) -> bool { return value != 0; };
+  auto get_index_of_max_value = [](auto *input, int size) -> byte {
+    return static_cast<byte>(
+        std::distance(input, std::max_element(input, input + size)));
+  };
 
-  RGBColor min_intensity{
-      .r = static_cast<byte>(std::distance(
-          histogram.red,
-          std::find_if(histogram.red, histogram.red + 256, non_zero))),
-      .g = static_cast<byte>(std::distance(
-          histogram.green,
-          std::find_if(histogram.green, histogram.green + 256, non_zero))),
-      .b = static_cast<byte>(std::distance(
-          histogram.blue,
-          std::find_if(histogram.blue, histogram.blue + 256, non_zero)))};
+  byte first_peaks[3] = {get_index_of_max_value(histogram.red, 256),
+                         get_index_of_max_value(histogram.green, 256),
+                         get_index_of_max_value(histogram.blue, 256)};
 
-  RGBColor max_intensity{
-      .r = static_cast<byte>(std::distance(
-          histogram.red, std::max_element(histogram.red, histogram.red + 256))),
-      .g = static_cast<byte>(std::distance(
-          histogram.green,
-          std::max_element(histogram.green, histogram.green + 256))),
-      .b = static_cast<byte>(std::distance(
-          histogram.blue,
-          std::max_element(histogram.blue, histogram.blue + 256)))};
+  int64_t red_sparse_distances[256];
+  int64_t green_sparse_distances[256];
+  int64_t blue_sparse_distances[256];
 
-  RGBColor median_cut{
-      .r = static_cast<byte>((max_intensity.r - min_intensity.r) >> 1),
-      .g = static_cast<byte>((max_intensity.g - min_intensity.g) >> 1),
-      .b = static_cast<byte>((max_intensity.b - min_intensity.b) >> 1)};
+  memset(red_sparse_distances, 0, sizeof(red_sparse_distances));
+  memset(green_sparse_distances, 0, sizeof(green_sparse_distances));
+  memset(blue_sparse_distances, 0, sizeof(blue_sparse_distances));
 
-  BmpImg output_image(width, height);
-
-  for (int x = 0; x < width; x++) {
-    for (int y = 0; y < height; y++) {
-      RGBColor value{.r = img.red_at(x, y),
-                     .g = img.green_at(x, y),
-                     .b = img.blue_at(x, y)};
-      RGBColor grey_value{};
-
-      grey_value.r = (value.r < median_cut.r) ? 0 : 255;
-      grey_value.g = (value.g < median_cut.g) ? 0 : 255;
-      grey_value.b = (value.b < median_cut.b) ? 0 : 255;
-
-      output_image.set_pixel(x, y, grey_value.r, grey_value.g, grey_value.b);
-    }
+  for (int i = 0; i < 256; i++) {
+    red_sparse_distances[i] =
+        (i - first_peaks[0]) * (i - first_peaks[0]) * histogram.red[i];
+    green_sparse_distances[i] =
+        (i - first_peaks[1]) * (i - first_peaks[1]) * histogram.green[i];
+    blue_sparse_distances[i] =
+        (i - first_peaks[2]) * (i - first_peaks[2]) * histogram.blue[i];
   }
 
-  return output_image;
+  byte second_peaks[3] = {get_index_of_max_value(red_sparse_distances, 256),
+                          get_index_of_max_value(green_sparse_distances, 256),
+                          get_index_of_max_value(blue_sparse_distances, 256)};
+  byte cut_points[3] = {0, 0, 0};
+  for (int i = 0; i < 3; i++) {
+    cut_points[i] = (first_peaks[i] + second_peaks[i]) >> 1;
+  }
+
+  Binarize(img, cut_points[0], cut_points[1], cut_points[2]);
 }
 
 int main(int argc, char **argv) {
@@ -336,15 +377,21 @@ int main(int argc, char **argv) {
   } break;
 
   case kEqualization: {
-    BmpImg output_image = Equalize(input_image);
+    Equalize(input_image);
 
-    output_image.write(output_bmp);
+    input_image.write(output_bmp);
   } break;
 
-  case kMedianGreyLevel: {
-    BmpImg output_image = MedianGreyLevel(input_image);
+  case kCutout: {
+    Cutout(input_image);
 
-    output_image.write(output_bmp);
+    input_image.write(output_bmp);
+  } break;
+
+  case kTwoPeaks: {
+    TwoPeaks(input_image);
+
+    input_image.write(output_bmp);
   } break;
 
   default:
